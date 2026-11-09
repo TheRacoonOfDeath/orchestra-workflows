@@ -1,0 +1,2 @@
+# Replaces Semgrep's defaults, which skip tests/ and with it the self-test fixture.
+vendor/
