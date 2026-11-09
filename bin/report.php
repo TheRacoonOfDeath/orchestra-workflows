@@ -209,6 +209,10 @@ function sarifFindings(string $file, string $root): array
             $rules[(string) ($rule['id'] ?? '')] = $rule;
         }
         foreach ($run['results'] ?? [] as $result) {
+            // Marked as safe in the code (e.g. `// nosemgrep`); code scanning shows them as closed.
+            if (($result['suppressions'] ?? []) !== []) {
+                continue;
+            }
             $ruleId = (string) ($result['ruleId'] ?? $result['rule']['id'] ?? 'unknown');
             $rule = $rules[$ruleId] ?? [];
             $location = $result['locations'][0]['physicalLocation'] ?? [];
