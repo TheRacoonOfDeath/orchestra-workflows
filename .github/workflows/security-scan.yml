@@ -1,0 +1,211 @@
+# Security scan of an Orchestra plugin, called by the plugin repos (see README.md).
+#
+# Psalm's taint analysis and Semgrep scan the PHP code, CodeQL the JavaScript, composer audit the
+# dependencies that ship in the plugin zip. All code findings appear in the repo's Security tab;
+# high and critical findings also open an issue (bin/report.php).
+name: Security scan
+
+on:
+  workflow_call:
+    inputs:
+      javascript:
+        description: Also scan the JavaScript with CodeQL
+        type: boolean
+        default: false
+      create-issues:
+        description: Open issues for new high and critical findings (false = only report)
+        type: boolean
+        default: true
+      path:
+        description: Folder of the plugin inside the repo
+        type: string
+        default: .
+      main-file:
+        description: The plugin's main file (default <repo name>.php)
+        type: string
+        default: ''
+      tools-ref:
+        description: Version of orchestra-workflows whose tools are used; keep in step with the tag in `uses`
+        type: string
+        default: v1
+
+permissions: {}
+
+env:
+  PLUGIN: ${{ github.workspace }}/plugin/${{ inputs.path }}
+  TOOLS: ${{ github.workspace }}/tools
+
+jobs:
+  psalm:
+    name: PHP taint analysis (Psalm)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: plugin
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: TheRacoonOfDeath/orchestra-workflows
+          ref: ${{ inputs.tools-ref }}
+          path: tools
+          persist-credentials: false
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+          tools: composer
+      - name: Install dependencies
+        env:
+          COMPOSER_AUTH: '{"github-oauth": {"github.com": "${{ github.token }}"}}'
+        run: |
+          composer install --working-dir="$PLUGIN" --no-interaction --no-progress
+          composer install --working-dir="$TOOLS" --no-interaction --no-progress
+      - name: Analyse
+        env:
+          MAIN_FILE: ${{ inputs.main-file != '' && inputs.main-file || format('{0}.php', github.event.repository.name) }}
+        run: |
+          sed -e "s#__PLUGIN__#$PLUGIN#g" -e "s#__MAIN__#$MAIN_FILE#g" -e "s#__TOOLS__#$TOOLS#g" \
+            "$TOOLS/psalm-taint.xml" > "$RUNNER_TEMP/psalm.xml"
+          cd "$PLUGIN"
+          # Psalm exits non-zero when it finds anything; a crash leaves no report and fails below.
+          "$TOOLS/vendor/bin/psalm" --config="$RUNNER_TEMP/psalm.xml" --taint-analysis --no-cache \
+            --no-progress --threads=1 --report="$RUNNER_TEMP/psalm.json" > /dev/null || true
+          php "$TOOLS/bin/report.php" psalm-sarif "$RUNNER_TEMP/psalm.json" psalm.sarif "${{ github.workspace }}/plugin"
+          mv psalm.sarif "${{ github.workspace }}/psalm.sarif"
+      - uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: psalm.sarif
+          category: psalm-taint
+          checkout_path: plugin
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sarif-psalm
+          path: psalm.sarif
+
+  semgrep:
+    name: PHP and secrets (Semgrep)
+    runs-on: ubuntu-latest
+    container: semgrep/semgrep
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: plugin
+          persist-credentials: false
+      - name: Scan
+        working-directory: plugin
+        env:
+          MAIN_FILE: ${{ inputs.main-file != '' && inputs.main-file || format('{0}.php', github.event.repository.name) }}
+        run: |
+          cd "${{ inputs.path }}"
+          targets="src $MAIN_FILE uninstall.php"
+          [ -d assets ] && targets="$targets assets"
+          semgrep scan --metrics=off --config p/php --config p/javascript --config p/secrets \
+            --sarif --output "$GITHUB_WORKSPACE/semgrep.sarif" $targets
+          # Paths relative to the repo root, as code scanning expects.
+          if [ "${{ inputs.path }}" != "." ]; then
+            sed -i "s#\"uri\": \"#\"uri\": \"${{ inputs.path }}/#g" "$GITHUB_WORKSPACE/semgrep.sarif"
+          fi
+      - uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+          checkout_path: plugin
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sarif-semgrep
+          path: semgrep.sarif
+
+  codeql:
+    name: JavaScript (CodeQL)
+    if: inputs.javascript
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript
+          build-mode: none
+          config: |
+            paths-ignore: [vendor, build, tests]
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: codeql-javascript
+          output: codeql
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sarif-codeql
+          path: codeql/*.sarif
+
+  dependencies:
+    name: Dependencies (composer audit)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: plugin
+          persist-credentials: false
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+          tools: composer
+      - name: Audit
+        run: |
+          # Only the dependencies that ship in the plugin zip. Exits non-zero on advisories.
+          composer audit --working-dir="$PLUGIN" --locked --no-dev --format=json > audit.json || true
+          php -r 'json_decode(file_get_contents("audit.json"), flags: JSON_THROW_ON_ERROR);'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: audit
+          path: audit.json
+
+  report:
+    name: Issues for high findings
+    needs: [psalm, semgrep, codeql, dependencies]
+    # Report what the other scanners found even if one of them failed or was skipped.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: plugin
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: TheRacoonOfDeath/orchestra-workflows
+          ref: ${{ inputs.tools-ref }}
+          path: tools
+          persist-credentials: false
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+      - uses: actions/download-artifact@v8
+        with:
+          path: results
+      - name: Report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ !inputs.create-issues && '--dry-run' || '' }}
+        run: |
+          audit=""
+          [ -f results/audit/audit.json ] && audit="--audit results/audit/audit.json"
+          php tools/bin/report.php issues --repo "$GITHUB_REPOSITORY" --sha "$GITHUB_SHA" --root plugin \
+            $audit $DRY_RUN $(find results -name '*.sarif')

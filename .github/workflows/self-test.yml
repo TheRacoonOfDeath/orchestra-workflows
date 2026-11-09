@@ -1,0 +1,22 @@
+# Runs the security scan on the deliberately vulnerable plugin in tests/fixture-plugin, with the
+# tools of this commit. It must find the fixture's XSS and SQL injection and open an issue for each
+# once; later runs must not open them again.
+name: Self-test
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  issues: write
+
+jobs:
+  scan:
+    uses: ./.github/workflows/security-scan.yml
+    with:
+      path: tests/fixture-plugin
+      main-file: fixture-plugin.php
+      tools-ref: ${{ github.sha }}

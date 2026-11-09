@@ -1,0 +1,3 @@
+/vendor/
+/tests/fixture-plugin/vendor/
+/tests/fixture-plugin/composer.lock

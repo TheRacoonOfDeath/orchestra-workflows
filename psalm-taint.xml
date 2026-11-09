@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<!--
+  Psalm configuration of the taint analysis. The workflow replaces __PLUGIN__ (the plugin's
+  checkout), __MAIN__ (its main file) and __TOOLS__ (this repo's checkout). Only the Tainted*
+  issues are used; bin/report.php drops the others.
+-->
+<psalm
+    errorLevel="8"
+    resolveFromConfigFile="false"
+    findUnusedCode="false"
+    findUnusedBaselineEntry="false"
+    autoloader="__PLUGIN__/vendor/autoload.php"
+>
+    <projectFiles>
+        <directory name="__PLUGIN__/src"/>
+        <file name="__PLUGIN__/__MAIN__"/>
+        <file name="__PLUGIN__/uninstall.php"/>
+    </projectFiles>
+    <stubs>
+        <file name="__TOOLS__/vendor/php-stubs/wordpress-stubs/wordpress-stubs.php"/>
+        <file name="__TOOLS__/stubs/wordpress-taint.php"/>
+    </stubs>
+</psalm>

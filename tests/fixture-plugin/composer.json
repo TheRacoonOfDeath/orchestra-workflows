@@ -1,0 +1,10 @@
+{
+    "name": "orchestra/fixture-plugin",
+    "description": "Deliberately vulnerable plugin for the self-test of the security scan.",
+    "type": "project",
+    "autoload": {
+        "psr-4": {
+            "Orchestra\\Fixture\\": "src/"
+        }
+    }
+}
