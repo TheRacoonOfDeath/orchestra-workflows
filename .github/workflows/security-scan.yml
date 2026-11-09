@@ -167,6 +167,8 @@ jobs:
         run: |
           # Only the dependencies that ship in the plugin zip. Exits non-zero on advisories.
           composer audit --working-dir="$PLUGIN" --locked --no-dev --format=json > audit.json || true
+          # Without packages, composer prints a sentence instead of JSON.
+          if grep -q '^No packages' audit.json; then echo '{"advisories": {}}' > audit.json; fi
           php -r 'json_decode(file_get_contents("audit.json"), flags: JSON_THROW_ON_ERROR);'
       - uses: actions/upload-artifact@v7
         with:
