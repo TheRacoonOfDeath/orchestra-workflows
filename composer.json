@@ -2,7 +2,7 @@
     "name": "orchestra/workflows",
     "description": "Shared GitHub Actions workflows of the Orchestra plugins: security scans.",
     "type": "project",
-    "license": "GPL-2.0-or-later",
+    "license": "MIT",
     "require": {
         "php": "^8.3",
         "vimeo/psalm": "^7.2",
