@@ -2,7 +2,8 @@
 # README.md). The zip is built here from the tag, not on a developer's machine, and gets a signed
 # build provenance (artifact attestation), so sites and users can check where it came from:
 #
-#     gh attestation verify orchestra-core-1.2.3.zip --repo TheRacoonOfDeath/orchestra-core
+#     gh attestation verify orchestra-core-1.2.3.zip --repo TheRacoonOfDeath/orchestra-core \
+#         --signer-workflow TheRacoonOfDeath/orchestra-workflows/.github/workflows/release.yml
 #
 # The tag must be annotated; its message becomes the release notes.
 name: Release

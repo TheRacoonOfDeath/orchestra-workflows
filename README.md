@@ -133,7 +133,8 @@ zip is built in GitHub Actions from the tag with the plugin's `build-plugin.sh`,
 provenance (artifact attestation), which anyone can check:
 
 ```sh
-gh attestation verify orchestra-core-1.2.3.zip --repo TheRacoonOfDeath/orchestra-core
+gh attestation verify orchestra-core-1.2.3.zip --repo TheRacoonOfDeath/orchestra-core \
+    --signer-workflow TheRacoonOfDeath/orchestra-workflows/.github/workflows/release.yml
 ```
 
 The tag must match the `Version:` of the main plugin file and be annotated; its message becomes
