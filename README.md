@@ -93,3 +93,71 @@ sed -e "s#__PLUGIN__#$PWD/tests/fixture-plugin#g" -e "s#__MAIN__#fixture-plugin.
 php bin/report.php psalm-sarif /tmp/psalm.json /tmp/psalm.sarif .
 php bin/report.php issues --repo TheRacoonOfDeath/orchestra-workflows --sha main --root . --dry-run /tmp/psalm.sarif
 ```
+
+## Tests
+
+`.github/workflows/ci.yml` runs on every push and pull request of a plugin:
+
+- `composer check` (coding standard, PHPStan, PHPUnit) on PHP 8.3, the oldest supported version,
+  and the latest PHP;
+- with `e2e: true`, the end-to-end tests (`composer e2e`) on the oldest supported WordPress
+  (`min-wordpress`, default 6.5) and the latest. The plugins' `tests/e2e/run.sh` read the version
+  from `E2E_WP_VERSION`.
+
+Add `.github/workflows/ci.yml` to a plugin:
+
+```yaml
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    uses: TheRacoonOfDeath/orchestra-workflows/.github/workflows/ci.yml@v1
+    with:
+      e2e: true   # only if the plugin has tests/e2e
+```
+
+## Releases
+
+`.github/workflows/release.yml` builds and publishes a release when a version tag is pushed. The
+zip is built in GitHub Actions from the tag with the plugin's `build-plugin.sh`, after
+`composer check`, never on a developer's machine. The zip and `update.json` get a signed build
+provenance (artifact attestation), which anyone can check:
+
+```sh
+gh attestation verify orchestra-core-1.2.3.zip --repo TheRacoonOfDeath/orchestra-core
+```
+
+The tag must match the `Version:` of the main plugin file and be annotated; its message becomes
+the release notes:
+
+```sh
+git tag -a v1.2.3 -m "Short user-facing notes" && git push origin v1.2.3
+```
+
+Add `.github/workflows/release.yml` to a plugin:
+
+```yaml
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    uses: TheRacoonOfDeath/orchestra-workflows/.github/workflows/release.yml@v1
+```

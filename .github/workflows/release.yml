@@ -1,0 +1,68 @@
+# Release of an Orchestra plugin, called by the plugin repos when a version tag is pushed (see
+# README.md). The zip is built here from the tag, not on a developer's machine, and gets a signed
+# build provenance (artifact attestation), so sites and users can check where it came from:
+#
+#     gh attestation verify orchestra-core-1.2.3.zip --repo TheRacoonOfDeath/orchestra-core
+#
+# The tag must be annotated; its message becomes the release notes.
+name: Release
+
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  release:
+    name: Build and release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write       # create the release
+      id-token: write       # sign the attestation
+      attestations: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+          tools: composer
+      - name: Check the tag
+        id: tag
+        env:
+          TAG: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.event.repository.name }}
+        run: |
+          version=$(grep -m 1 "Version:" "$REPOSITORY.php" | sed -E 's/.*Version:[[:space:]]*([0-9.]+).*/\1/')
+          if [ "v$version" != "$TAG" ]; then
+            echo "::error::The tag $TAG does not match the version $version in $REPOSITORY.php"
+            exit 1
+          fi
+          # actions/checkout leaves the tag lightweight; fetch it to read its message.
+          git fetch --quiet --force origin "refs/tags/$TAG:refs/tags/$TAG"
+          if [ "$(git cat-file -t "$TAG")" != "tag" ]; then
+            echo "::error::$TAG is not an annotated tag; its message is used as the release notes"
+            exit 1
+          fi
+          git tag -l --format='%(contents)' "$TAG" > "$RUNNER_TEMP/notes.md"
+          echo "zip=build/$REPOSITORY-$version.zip" >> "$GITHUB_OUTPUT"
+      - run: composer install --no-interaction --no-progress
+        env:
+          COMPOSER_AUTH: '{"github-oauth": {"github.com": "${{ github.token }}"}}'
+      - run: composer check
+      - run: ./build-plugin.sh
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            ${{ steps.tag.outputs.zip }}
+            build/update.json
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          ZIP: ${{ steps.tag.outputs.zip }}
+        run: |
+          gh release create "$TAG" "$ZIP" build/update.json --verify-tag --title "$TAG" \
+            --notes-file "$RUNNER_TEMP/notes.md"

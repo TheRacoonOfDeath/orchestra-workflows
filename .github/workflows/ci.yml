@@ -1,0 +1,72 @@
+# Tests of an Orchestra plugin, called by the plugin repos on every push and pull request (see
+# README.md): `composer check` on the oldest and the newest supported PHP, and optionally the
+# end-to-end tests (`composer e2e`) on the oldest supported and the latest WordPress.
+name: Tests
+
+on:
+  workflow_call:
+    inputs:
+      e2e:
+        description: Also run the end-to-end tests (tests/e2e)
+        type: boolean
+        default: false
+      min-wordpress:
+        description: The oldest supported WordPress version (the plugins' "Requires at least")
+        type: string
+        default: '6.5'
+
+permissions: {}
+
+jobs:
+  check:
+    name: composer check (PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.3', 'latest']
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+          tools: composer
+      # The other Orchestra plugins are dev dependencies from their GitHub repos.
+      - run: composer install --no-interaction --no-progress
+        env:
+          COMPOSER_AUTH: '{"github-oauth": {"github.com": "${{ github.token }}"}}'
+      - run: composer check
+
+  e2e:
+    name: e2e (WordPress ${{ matrix.wordpress }})
+    if: inputs.e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        wordpress: ['${{ inputs.min-wordpress }}', 'latest']
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+          extensions: pdo_sqlite, zip, fileinfo
+          tools: composer
+      - run: composer install --no-interaction --no-progress
+        env:
+          COMPOSER_AUTH: '{"github-oauth": {"github.com": "${{ github.token }}"}}'
+      - run: composer e2e
+        env:
+          E2E_WP_VERSION: ${{ matrix.wordpress != 'latest' && matrix.wordpress || '' }}
+          GITHUB_TOKEN: ${{ github.token }}
